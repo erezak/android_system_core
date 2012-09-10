@@ -48,11 +48,14 @@
 #include <device_perms.h>
 
 #define PERSISTENT_PROPERTY_DIR  "/data/property"
+#define SECONDARY_DPI_FILE_NAME "/data/misc/dens.s"
+#define DPI_PROP "ro.sf.lcd_density"
 
 static int persistent_properties_loaded = 0;
 static int property_area_inited = 0;
 
 static int property_set_fd = -1;
+static int alternative_dpi = -1;
 
 /* White list of permissions for setting property services. */
 #ifndef PROPERTY_PERMS
@@ -252,6 +255,35 @@ static int check_perms(const char *name, unsigned int uid, unsigned int gid)
     return 0;
 }
 
+void reverse(char s[])
+{
+    int i, j;
+    char c;
+
+    for (i = 0, j = strlen(s)-1; i<j; i++, j--) {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
+
+/* itoa:  convert n to characters in s */
+ void itoa(int n, char s[])
+ {
+     int i, sign;
+
+     if ((sign = n) < 0)  /* record sign */
+         n = -n;          /* make n positive */
+     i = 0;
+     do {       /* generate digits in reverse order */
+         s[i++] = n % 10 + '0';   /* get next digit */
+     } while ((n /= 10) > 0);     /* delete it */
+     if (sign < 0)
+         s[i++] = '-';
+     s[i] = '\0';
+     reverse(s);
+ }
+
 const char* property_get(const char *name)
 {
     prop_info *pi;
@@ -445,7 +477,13 @@ static void load_properties(char *data)
         tmp = eol - 2;
         while((tmp > value) && isspace(*tmp)) *tmp-- = 0;
 
-        property_set(key, value);
+        if (strncmp(DPI_PROP, key, strlen(DPI_PROP)) == 0 && alternative_dpi > 0 & alternative_dpi < 1000) {
+            char alt_dpi_str[5];
+            itoa(alternative_dpi, alt_dpi_str);
+            property_set(key, alt_dpi_str);
+        } else {
+            property_set(key, value);
+        }
     }
 }
 
@@ -453,8 +491,17 @@ static void load_properties_from_file(const char *fn)
 {
     char *data;
     unsigned sz;
+    char *data1;
 
     data = read_file(fn, &sz);
+    if (strncmp(PROP_PATH_SYSTEM_BUILD, fn, strlen(PROP_PATH_SYSTEM_BUILD)) == 0) {
+        //Try to also load the dpi override file
+        data1 = read_file(SECONDARY_DPI_FILE_NAME, &sz);
+        if (data1 != 0 ) {
+            alternative_dpi = atoi (data1);
+            free(data1);
+        }
+    }
 
     if(data != 0) {
         load_properties(data);
